@@ -1,79 +1,82 @@
 use std::pin::Pin;
 use std::ops::Deref;
 
-struct LargeData {
-    large_array: [u8; 8],
+
+trait Referencer<'a, P: ?Sized> {
+    fn from_data(data: &'a P) -> Self;
+}
+
+
+
+struct LargeDataOwned<const N: usize> {
+    large_array: [u8; N],
     large_vec: Vec<u8>,
 }
 
-struct References<'a> {
+struct LargeDataRefs<'a> {
     last_array_element: &'a u8,
     last_vec_element: &'a u8,
 }
 
+impl<'a, const N: usize> Referencer<'a, LargeDataOwned<N>> for LargeDataRefs<'a> {
+    fn from_data(data: &'a LargeDataOwned<N>) -> Self {
+        Self {
+            last_array_element: &data.large_array[data.large_array.len() - 1],
+            last_vec_element: &data.large_vec[data.large_vec.len() - 1],
+        }
+    }
+}
 
-struct OwningHandle<P, R>(Pin<P>, R)
+
+//// vvvv TO BE GENERATED vvvv ////
+struct LargeData<P>(Pin<P>, LargeDataRefs<'static>)
+where
+    P: Deref,
+    <P as Deref>::Target: Unpin;
+
+
+impl<P> LargeData<P>
 where
     P: Deref,
     <P as Deref>::Target: Unpin,
-    for<'r> R: 'r;
-
-impl OwningHandle2<'_, Box<LargeData>, References<'static>> for MyData
+    for<'a> LargeDataRefs<'a>: Referencer<'a, <P as Deref>::Target>,
 {
-    fn pinned<'a>(&'a self) -> &'a LargeData {
-        self.0.as_ref().get_ref()
-    }
-    
-    fn references<'a>(&'a self) -> &'a References<'a> {
-        &self.1
-    }
-}
-
-trait OwningHandle2<'r, P, R: 'r>
-where
-    P: Deref,
-    <P as Deref>::Target: Unpin,
-{
-    fn pinned<'a>(&'a self) -> &'a <P as Deref>::Target;
-    
-    fn references<'a>(&'a self) -> &'a R
-    where R: 'a;
-}
-
-
-struct MyData(Pin<Box<LargeData>>, References<'static>);
-
-fn create_ref<'a>(large_data: &'a LargeData) -> References<'a> {
-    References {
-        last_array_element: &large_data.large_array[large_data.large_array.len() - 1],
-        last_vec_element: &large_data.large_vec[large_data.large_vec.len() - 1],
-    }
-}
-
-impl MyData {
-    fn new(large_data: Box<LargeData>) -> Self {
-        let pinned_data = Pin::new(large_data);
-        let references_local = create_ref(pinned_data.as_ref().get_ref());
-        let references_static = unsafe { std::mem::transmute::<References<'_>, References<'static>>(references_local) };
+    fn new(pinnable: P) -> Self {
+        let pinned_data = Pin::new(pinnable);
+        let references_local = LargeDataRefs::from_data(pinned_data.as_ref().get_ref());
+        let references_static = unsafe { std::mem::transmute::<LargeDataRefs<'_>, LargeDataRefs<'static>>(references_local) };
         
-        MyData(pinned_data, references_static as References<'static>)
+        Self(pinned_data, references_static)
     }
 
-    fn pinned<'a>(&'a self) -> &'a LargeData {
+    fn pinned<'a>(&'a self) -> &'a <P as Deref>::Target {
         self.0.as_ref().get_ref()
     }
     
-    fn references<'a>(&'a self) -> &'a References<'a> {
+    fn referenced<'a>(&'a self) -> &'a LargeDataRefs<'a> {
         &self.1
     }
 }
-
 
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    use std::rc::Rc;
+
     #[test]
     fn it_works() {
-        assert_eq!(2 + 2, 4);
+        let data = LargeDataOwned { large_array: [1, 2, 3, 4, 5, 6, 7, 8], large_vec: (5..=10).collect() };
+        let large_data = LargeData::new(Box::new(data));
+
+        assert_eq!(*large_data.referenced().last_array_element, 8);
+        assert_eq!(*large_data.referenced().last_vec_element, 10);
+
+        let data2 = LargeDataOwned { large_array: [1, 2], large_vec: vec![1, 2] };
+        let large_data2 = LargeData::new(Rc::new(data2));
+
+        assert_eq!(*large_data2.referenced().last_array_element, 2);
+        assert_eq!(*large_data2.referenced().last_vec_element, 2);
     }
 }
