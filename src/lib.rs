@@ -7,7 +7,12 @@ trait Referencer<'a, P: ?Sized> {
 
 macro_rules! referential(
     {
-        struct $name:ident + $own_lifetime:lifetime ($ref:ident<$($ref_lifetimes:lifetime),+>);
+        struct $name:ident + $own_lifetime:lifetime ($ref:ident);
+    } => {
+        referential!{ struct $name + $own_lifetime ($ref<>); }
+    };
+    {
+        struct $name:ident + $own_lifetime:lifetime ($ref:ident<$($ref_lifetimes:lifetime),*>);
     } => {
         struct $name<P>(Pin<P>, $ref<'static>)
         where
@@ -63,6 +68,11 @@ impl<'a, const N: usize> Referencer<'a, LargeDataOwned<N>> for LargeDataRefs<'a>
 }
 
 //// vvvv TO BE GENERATED vvvv ////
+referential! {
+    struct NoReference + 'a (LargeDataRefs);
+}
+
+
 referential! {
     struct LargeData2 + 'a (LargeDataRefs<'a>);
 }
