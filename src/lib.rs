@@ -1,5 +1,4 @@
 #![cfg_attr(not(test), no_std)]
-
 // #![feature(trace_macros)]
 
 trait Referencer<'a, P: ?Sized> {
@@ -258,11 +257,24 @@ mod tests {
         assert_eq!(referential.referenced().max, 3);
 
         referential! {
-            struct ReferentialEmptyLifetime + 'o (NoLifetimeRef<>);
+            struct ReferentialEmptyLifetime + 'p (NoLifetimeRef<>);
         }
         let referential =
             ReferentialEmptyLifetime::new_with(data.clone(), |_| NoLifetimeRef { max: 4 });
         assert_eq!(referential.referenced().max, 4);
+    }
+
+    #[test]
+    fn ref_to_ref() {
+        struct U8Referencer<'a>(&'a u8);
+        referential! {
+            struct U8Ref + 'b (U8Referencer<'b>);
+        }
+
+        let val: u8 = 5;
+        let referential = U8Ref::new_with(&val, |v| U8Referencer(v));
+        assert!(std::ptr::eq(&val, referential.referenced().0));
+        assert!(std::ptr::eq(referential.pinned(), referential.referenced().0));
     }
 
     #[test]
