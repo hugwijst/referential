@@ -1,5 +1,4 @@
 #![cfg_attr(not(test), no_std)]
-// #![feature(trace_macros)]
 
 trait Referencer<'a, P: ?Sized> {
     fn from_data(data: &'a P) -> Self;
@@ -77,7 +76,7 @@ macro_rules! referential {
                 Self(references_static, pinned_data)
             }
 
-            pub fn pinned<'a>(&'a self) -> &'a <P as ::core::ops::Deref>::Target {
+            pub fn pinned<$own_lifetime>(&$own_lifetime self) -> &$own_lifetime <P as ::core::ops::Deref>::Target {
                 self.1.as_ref().get_ref()
             }
 
@@ -106,13 +105,9 @@ macro_rules! referential {
     };
 }
 
-// referential! {
-//     struct WithUnusedOwnLifetime<'a> + 'b (LargeDataRefs<'b>);
-// }
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::Referencer;
 
     struct OwnedVec {
         vec: Vec<u8>,
