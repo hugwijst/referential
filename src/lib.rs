@@ -46,7 +46,7 @@ macro_rules! referential {
                 // The order of elements here is critical to ensure safety: the
                 // drop order is the same as declared here. First dropping the referenced
                 // data is obviously unsafe, dropping the references first should be safe.
-                $vis struct $name<$($new_lifetime_bounds)* P>($ref<$d ($d lt_static),*>, ::std::pin::Pin<P>)
+                $vis struct $name<$($new_lifetime_bounds)* P>($ref<$d ($d lt_static),*>, ::core::pin::Pin<P>)
                 where
                     P: ::core::ops::Deref,
                     <P as ::core::ops::Deref>::Target: Unpin;
@@ -71,11 +71,15 @@ macro_rules! referential {
                         Self(references_static, pinned_data)
                     }
 
-                    pub fn pinned<$own_lifetime>(&$own_lifetime self) -> &$own_lifetime <P as ::core::ops::Deref>::Target {
+                    pub fn owning<$own_lifetime>(&$own_lifetime self) -> &$own_lifetime <P as ::core::ops::Deref>::Target {
                         self.1.as_ref().get_ref()
                     }
 
-                    pub fn referenced<$own_lifetime>(&$own_lifetime self) -> &$own_lifetime $ref<$($ref_lifetimes),*> {
+                    pub fn into_owning(self) -> P {
+                        ::core::pin::Pin::into_inner(self.1)
+                    }
+
+                    pub fn referencing<$own_lifetime>(&$own_lifetime self) -> &$own_lifetime $ref<$($ref_lifetimes),*> {
                         &self.0
                     }
                 }
@@ -118,6 +122,7 @@ macro_rules! referential {
 mod tests {
     use super::FromData;
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct OwnedVec {
         vec: Vec<u8>,
     }
@@ -170,10 +175,10 @@ mod tests {
         }
 
         let referential = NoGenerics::new(Box::new(OwnedVec::new(5)));
-        assert_eq!(*referential.referenced().last_element, 4);
+        assert_eq!(*referential.referencing().last_element, 4);
         assert!(core::ptr::eq(
-            referential.referenced().last_element,
-            &referential.pinned().vec[referential.pinned().vec.len() - 1]
+            referential.referencing().last_element,
+            &referential.owning().vec[referential.owning().vec.len() - 1]
         ));
     }
 
@@ -184,10 +189,10 @@ mod tests {
         }
 
         let referential = EmptyGenerics::new(Box::new(OwnedVec::new(5)));
-        assert_eq!(*referential.referenced().last_element, 4);
+        assert_eq!(*referential.referencing().last_element, 4);
         assert!(core::ptr::eq(
-            referential.referenced().last_element,
-            &referential.pinned().vec[referential.pinned().vec.len() - 1]
+            referential.referencing().last_element,
+            &referential.owning().vec[referential.owning().vec.len() - 1]
         ));
     }
 
@@ -201,10 +206,10 @@ mod tests {
         let referential = NoGenerics::new_with(data, |d| Refs {
             last_element: &d.vec[1],
         });
-        assert_eq!(*referential.referenced().last_element, 1);
+        assert_eq!(*referential.referencing().last_element, 1);
         assert!(core::ptr::eq(
-            referential.referenced().last_element,
-            &referential.pinned().vec[1]
+            referential.referencing().last_element,
+            &referential.owning().vec[1]
         ));
     }
 
@@ -225,13 +230,13 @@ mod tests {
             last_elem_a: &d.vec[0],
             last_elem_b: &stack_vec[0],
         });
-        assert_eq!(*outside_ref.referenced().last_elem_a, 0);
+        assert_eq!(*outside_ref.referencing().last_elem_a, 0);
         assert!(core::ptr::eq(
-            outside_ref.referenced().last_elem_a,
-            &outside_ref.pinned().vec[0]
+            outside_ref.referencing().last_elem_a,
+            &outside_ref.owning().vec[0]
         ));
         assert!(core::ptr::eq(
-            outside_ref.referenced().last_elem_b,
+            outside_ref.referencing().last_elem_b,
             &stack_vec[0]
         ));
     }
@@ -258,14 +263,14 @@ mod tests {
 
         let data = Rc::new(OwnedVec::new(4));
         let referential = ReferentialWithoutLifetime::new(data.clone());
-        assert_eq!(referential.referenced().max, 3);
+        assert_eq!(referential.referencing().max, 3);
 
         referential! {
             struct ReferentialEmptyLifetime + 'p (NoLifetimeRef<>);
         }
         let referential =
             ReferentialEmptyLifetime::new_with(data.clone(), |_| NoLifetimeRef { max: 4 });
-        assert_eq!(referential.referenced().max, 4);
+        assert_eq!(referential.referencing().max, 4);
     }
 
     #[test]
@@ -277,10 +282,10 @@ mod tests {
 
         let val: u8 = 5;
         let referential = U8Ref::new_with(&val, |v| U8Referencer(v));
-        assert!(std::ptr::eq(&val, referential.referenced().0));
+        assert!(std::ptr::eq(&val, referential.referencing().0));
         assert!(std::ptr::eq(
-            referential.pinned(),
-            referential.referenced().0
+            referential.owning(),
+            referential.referencing().0
         ));
     }
 
@@ -292,10 +297,10 @@ mod tests {
         }
 
         let referential = ClonableReferential::new(Box::new(OwnedVec::new(5)));
-        assert_eq!(*referential.referenced().last_element, 4);
+        assert_eq!(*referential.referencing().last_element, 4);
         assert!(core::ptr::eq(
-            referential.referenced().last_element,
-            &referential.pinned().vec[4]
+            referential.referencing().last_element,
+            &referential.owning().vec[4]
         ));
     }
 
@@ -309,6 +314,25 @@ mod tests {
         let data = OwnedVec::new(2);
         let simple = Simple::new(Rc::new(data));
 
-        assert_eq!(*simple.referenced().last_element, 1);
+        assert_eq!(*simple.referencing().last_element, 1);
+    }
+
+    #[test]
+    fn into_owned() {
+        referential! {
+            struct Simple + 'a (Refs<'a>);
+        }
+
+        let data = OwnedVec::new(2);
+        let simple = Simple::new(Box::new(data.clone()));
+
+        assert_eq!(*simple.referencing().last_element, 1);
+
+        // Accessing `element` after `simple.into_owned` is not possible as
+        // `Simple::into_owned` tries to move out of `simple`.
+        let _element = simple.referencing().last_element;
+
+        let pinned_data = simple.into_owning();
+        assert_eq!(*pinned_data, data);
     }
 }
