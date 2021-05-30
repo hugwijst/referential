@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 
-trait Referencer<'a, P: ?Sized> {
+trait FromData<'a, P: ?Sized> {
     fn from_data(data: &'a P) -> Self;
 }
 
@@ -84,7 +84,7 @@ macro_rules! referential {
                 where
                     P: ::core::ops::Deref,
                     <P as ::core::ops::Deref>::Target: Unpin,
-                    for<$own_lifetime> $ref<$($ref_lifetimes),*>: $crate::Referencer<$own_lifetime, <P as ::core::ops::Deref>::Target>,
+                    for<$own_lifetime> $ref<$($ref_lifetimes),*>: $crate::FromData<$own_lifetime, <P as ::core::ops::Deref>::Target>,
                 {
                     #![allow(dead_code)]
 
@@ -116,7 +116,7 @@ macro_rules! referential {
 
 #[cfg(test)]
 mod tests {
-    use super::Referencer;
+    use super::FromData;
 
     struct OwnedVec {
         vec: Vec<u8>,
@@ -147,7 +147,7 @@ mod tests {
         last_element: &'a u8,
     }
 
-    impl<'a> Referencer<'a, OwnedVec> for Refs<'a> {
+    impl<'a> FromData<'a, OwnedVec> for Refs<'a> {
         fn from_data(data: &'a OwnedVec) -> Self {
             Self {
                 last_element: &data.vec[data.vec.len() - 1],
@@ -155,7 +155,7 @@ mod tests {
         }
     }
 
-    impl<'a, const N: usize> Referencer<'a, OwnedConstGeneric<N>> for Refs<'a> {
+    impl<'a, const N: usize> FromData<'a, OwnedConstGeneric<N>> for Refs<'a> {
         fn from_data(data: &'a OwnedConstGeneric<N>) -> Self {
             Self {
                 last_element: &data.array[N - 1],
@@ -244,7 +244,7 @@ mod tests {
             max: u8,
         }
 
-        impl Referencer<'_, OwnedVec> for NoLifetimeRef {
+        impl FromData<'_, OwnedVec> for NoLifetimeRef {
             fn from_data(data: &OwnedVec) -> Self {
                 NoLifetimeRef {
                     max: data.vec.iter().copied().max().unwrap_or(0),
