@@ -9,60 +9,97 @@ macro_rules! referential {
     (
         @struct (<> $($tail:tt)*) -> ($(#[$attr:meta])*, $vis:vis, $name:ident)
     ) => {
-        referential!{ @own_lifetime ($($tail)*) -> ($(#[$attr])*, $vis, $name, ()) }
+        referential!{ @own_lifetime ($($tail)*) -> ($(#[$attr])*, $vis, $name, (), ()) }
     };
     (
-        @struct (<$($own_gen_lifetime:lifetime $(: $own_first_lifetime_bound:lifetime $(+ $own_other_lifetime_bound:lifetime)*)?),* $(,)?> $($tail:tt)*) -> ($(#[$attr:meta])*, $vis:vis, $name:ident)
+        @struct (<$($own_params:tt),*> $($tail:tt)*) -> ($(#[$attr:meta])*, $vis:vis, $name:ident)
     ) => {
-        referential!{ @own_lifetime ($($tail)*) -> ($(#[$attr])*, $vis, $name, ($($own_gen_lifetime $(: $own_first_lifetime_bound $(+ $own_other_lifetime_bound)*)?),*,)) }
+        referential!{ @own_lt_params ($($own_params),*), ($($tail)*) -> ($(#[$attr])*, $vis, $name, ()) }
     };
     (
         @struct ($($tail:tt)*) -> ($(#[$attr:meta])*, $vis:vis, $name:ident)
     ) => {
-        referential!{ @own_lifetime ($($tail)*) -> ($(#[$attr])*, $vis, $name, ()) }
+        referential!{ @own_lifetime ($($tail)*) -> ($(#[$attr])*, $vis, $name, (), ()) }
     };
     (
-        @own_lifetime (+ $own_lifetime:lifetime ($ref:ident);) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*))
+        @own_lt_params ($own_gen_lifetime:lifetime $(: $own_first_lifetime_bound:lifetime $(+ $own_other_lifetime_bound:lifetime)*)? $(, $($params_tail:tt)*)?), ($($tail:tt)*) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lt_bounds:tt)*))
     ) => {
-        referential!{ @own_lifetime (+ $own_lifetime ($ref<>);) -> ($(#[$attr])*, $vis, $name, ($($new_lifetime_bounds)*)) }
+        referential!{ @own_lt_params ($($($params_tail)*)?), ($($tail)*) -> ($(#[$attr])*, $vis, $name, ($($new_lt_bounds)* $own_gen_lifetime $(: $own_first_lifetime_bound $(+ $own_other_lifetime_bound)*)?,)) }
     };
     (
-        @own_lifetime (+ $own_lifetime:lifetime ($ref:ident<$($ref_lifetimes:lifetime),*>);) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*))
+        @own_lt_params ($($params_tail:tt)*), ($($tail:tt)*) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lt_bounds:tt)*))
     ) => {
-        referential!{ @generate ($) $(#[$attr])*, $vis, $name, ($($new_lifetime_bounds)*), $own_lifetime, $ref, ($($ref_lifetimes),*) }
+        referential!{ @own_generics_params ($($params_tail)*), ($($tail)*) -> ($(#[$attr])*, $vis, $name, ($($new_lt_bounds)*)) }
+    };
+    (
+        @own_generics_params ($($own_generics:ident),* $(,)?), ($($tail:tt)*) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lt_bounds:tt)*))
+    ) => {
+        referential!{ @own_lifetime ($($tail)*) -> ($(#[$attr])*, $vis, $name, ($($new_lt_bounds)*), ($($own_generics),*)) }
+    };
+    (
+        @own_lifetime (+ $own_lifetime:lifetime ($ref:ident);) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*), ($($own_generics:tt)*))
+    ) => {
+        referential!{ @ref_lt_params () -> ($(#[$attr])*, $vis, $name, ($($new_lifetime_bounds)*), $own_lifetime, $ref, (), ($($own_generics)*)) }
+    };
+    (
+        @own_lifetime (+ $own_lifetime:lifetime ($ref:ident<>);) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*), ($($own_generics:tt)*))
+    ) => {
+        referential!{ @ref_lt_params () -> ($(#[$attr])*, $vis, $name, ($($new_lifetime_bounds)*), $own_lifetime, $ref, (), ($($own_generics)*)) }
+    };
+    (
+        @own_lifetime (+ $own_lifetime:lifetime ($ref:ident<$($ref_gen_params:tt),* $(,)?>);) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*), ($($own_generics:tt)*))
+    ) => {
+        referential!{ @ref_lt_params ($($ref_gen_params),*) -> ($(#[$attr])*, $vis, $name, ($($new_lifetime_bounds)*), $own_lifetime, $ref, (), ($($own_generics)*)) }
+    };
+    (
+        @ref_lt_params ($new_ref_lt:lifetime $(, $($tail:tt)*)?) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*), $own_lifetime:lifetime, $ref:ident, ($($ref_lifetimes:tt)*), ($($own_generics:tt)*))
+    ) => {
+        referential!{ @ref_lt_params ($($($tail)*)?) -> ($(#[$attr])*, $vis, $name, ($($new_lifetime_bounds)*), $own_lifetime, $ref, ($($ref_lifetimes)* $new_ref_lt,), ($($own_generics)*)) }
+    };
+    (
+        @ref_lt_params ($($tail:tt)*) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*), $own_lifetime:lifetime, $ref:ident, ($($ref_lifetimes:tt)*), ($($own_generics:tt)*))
+    ) => {
+        referential!{ @ref_generic_params ($($tail)*) -> ($(#[$attr])*, $vis, $name, ($($new_lifetime_bounds)*), $own_lifetime, $ref, ($($ref_lifetimes)*), ($($own_generics)*)) }
+    };
+    (
+        @ref_generic_params ($($ref_generics:ident),*) -> ($(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*), $own_lifetime:lifetime, $ref:ident, ($($ref_lifetimes:tt)*), ($($own_generics:tt)*))
+    ) => {
+        referential!{ @generate ($) $(#[$attr])*, $vis, $name, ($($new_lifetime_bounds)*), $own_lifetime, $ref, ($($ref_lifetimes)*), ($($own_generics)*), ($($ref_generics),*) }
     };
     // The argument `$d` is used required to be `$`, to make it so repitions don't get matched when
     // evaluating the `@generate` rule. See https://github.com/rust-lang/rust/issues/35853.
     (
-        @generate ($d:tt) $(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*), $own_lifetime:lifetime, $ref:ident, ($($ref_lifetimes:lifetime),*)
+        @generate ($d:tt) $(#[$attr:meta])*, $vis:vis, $name:ident, ($($new_lifetime_bounds:tt)*), $own_lifetime:lifetime, $ref:ident, ($($ref_lifetimes:tt)*), ($($own_generics:ident),*), ($($ref_generics:ident),*)
     ) => {
         // We create a new macro which can match on the tokens of `$own_lifetime`. This
         // way we can replace `$own_lifetime` by `'static`, which is captured in `$d lt_static`.
         // Note that we cannot directly use `$` here, so we pass in the `$` token as `$d`.
         macro_rules! __lifetime_replaced {
             (
-                [] -> ($d($d lt_static:lifetime),* $d(,)?)
+                [] -> ($d($d lt_static:tt)*)
             ) => {
                 // The order of elements here is critical to ensure safety: the
                 // drop order is the same as declared here. First dropping the referenced
                 // data is obviously unsafe, dropping the references first should be safe.
-                $vis struct $name<$($new_lifetime_bounds)* P>($ref<$d ($d lt_static),*>, ::core::pin::Pin<P>)
+                $vis struct $name<$($new_lifetime_bounds)* P, $($own_generics),*>($ref<$d ($d lt_static)* $($ref_generics),*>, ::core::pin::Pin<P>)
                 where
                     P: ::core::ops::Deref,
-                    <P as ::core::ops::Deref>::Target: Unpin;
+                    <P as ::core::ops::Deref>::Target: Unpin,
+                    $($ref_generics: 'static),*
+                ;
 
-                impl<$($new_lifetime_bounds)* P> $name<$($new_lifetime_bounds)* P>
+                impl<$($new_lifetime_bounds)* P, $($own_generics),*> $name<$($new_lifetime_bounds)* P, $($own_generics),*>
                 where
                     P: ::core::ops::Deref,
                     <P as ::core::ops::Deref>::Target: Unpin,
                 {
                     #![allow(dead_code)]
 
-                    pub fn new_with<F>(pinnable: P, f: F) -> Self
+                    pub fn new_with<F>(owning: P, f: F) -> Self
                     where
-                        F: for<$own_lifetime> FnOnce(&$own_lifetime <P as ::core::ops::Deref>::Target) -> $ref<$($ref_lifetimes),*>
+                        F: for<$own_lifetime> FnOnce(&$own_lifetime <P as ::core::ops::Deref>::Target) -> $ref<$($ref_lifetimes)* $($ref_generics),*>
                     {
-                        let pinned_data = ::core::pin::Pin::new(pinnable);
+                        let pinned_data = ::core::pin::Pin::new(owning);
                         let references_local = (f)(pinned_data.as_ref().get_ref());
                         let references_static = unsafe {
                             ::core::mem::transmute(references_local)
@@ -79,21 +116,21 @@ macro_rules! referential {
                         ::core::pin::Pin::into_inner(self.1)
                     }
 
-                    pub fn referencing<$own_lifetime>(&$own_lifetime self) -> &$own_lifetime $ref<$($ref_lifetimes),*> {
+                    pub fn referencing<$own_lifetime>(&$own_lifetime self) -> &$own_lifetime $ref<$($ref_lifetimes)* $($ref_generics),*> {
                         &self.0
                     }
                 }
 
-                impl<$($new_lifetime_bounds)* P> $name<$($new_lifetime_bounds)* P>
+                impl<$($new_lifetime_bounds)* P, $($own_generics),*> $name<$($new_lifetime_bounds)* P, $($own_generics),*>
                 where
                     P: ::core::ops::Deref,
                     <P as ::core::ops::Deref>::Target: Unpin,
-                    for<$own_lifetime> $ref<$($ref_lifetimes),*>: $crate::FromData<$own_lifetime, <P as ::core::ops::Deref>::Target>,
+                    for<$own_lifetime> $ref<$($ref_lifetimes)* $($ref_generics),*>: $crate::FromData<$own_lifetime, <P as ::core::ops::Deref>::Target>,
                 {
                     #![allow(dead_code)]
 
-                    pub fn new(pinnable: P) -> Self {
-                        Self::new_with(pinnable, |p_ref| $ref::from_data(p_ref))
+                    pub fn new(owning: P) -> Self {
+                        Self::new_with(owning, |p_ref| $ref::from_data(p_ref))
                     }
                 }
             };
@@ -109,7 +146,7 @@ macro_rules! referential {
             };
         }
 
-        __lifetime_replaced!{ [$($ref_lifetimes),*] -> () }
+        __lifetime_replaced!{ [$($ref_lifetimes)*] -> () }
     };
     (
         $(#[$attr:meta])* $vis:vis struct $name:ident $($tail:tt)*
@@ -334,5 +371,24 @@ mod tests {
 
         let pinned_data = simple.into_owning();
         assert_eq!(*pinned_data, data);
+    }
+
+    #[test]
+    fn generics() {
+        pub struct GenericRefs<'a, T> {
+            last_element: &'a T,
+        }
+
+        referential! {
+            struct Generic<T> + 'a (GenericRefs<'a, T>);
+        }
+
+        let data = Box::new(vec!['a', 'b', 'e']);
+        let generics = Generic::new_with(data, |d| GenericRefs {
+            last_element: &d[d.len() - 1],
+        });
+
+        assert_eq!(*generics.referencing().last_element, 'e');
+        assert_eq!(generics.referencing().last_element, &generics.owning()[2]);
     }
 }
