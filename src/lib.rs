@@ -172,19 +172,6 @@ mod tests {
         }
     }
 
-    struct OwnedConstGeneric<const N: usize> {
-        array: [u8; N],
-    }
-
-    impl<const N: usize> Default for OwnedConstGeneric<N> {
-        fn default() -> OwnedConstGeneric<N> {
-            use core::convert::TryFrom;
-            OwnedConstGeneric {
-                array: <[u8; N]>::try_from((0..N as u8).collect::<Vec<_>>().as_ref()).unwrap(),
-            }
-        }
-    }
-
     pub struct Refs<'a> {
         last_element: &'a u8,
     }
@@ -193,14 +180,6 @@ mod tests {
         fn from_data(data: &'a OwnedVec) -> Self {
             Self {
                 last_element: &data.vec[data.vec.len() - 1],
-            }
-        }
-    }
-
-    impl<'a, const N: usize> FromData<'a, OwnedConstGeneric<N>> for Refs<'a> {
-        fn from_data(data: &'a OwnedConstGeneric<N>) -> Self {
-            Self {
-                last_element: &data.array[N - 1],
             }
         }
     }
