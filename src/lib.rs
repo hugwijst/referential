@@ -130,6 +130,7 @@ macro_rules! referential {
                     #![allow(dead_code)]
 
                     pub fn new(owning: P) -> Self {
+                        use $crate::FromData;
                         Self::new_with(owning, |p_ref| $ref::from_data(p_ref))
                     }
                 }
@@ -389,4 +390,16 @@ mod tests {
             20
         );
     }
+}
+
+#[cfg(doctest)]
+mod test_readme {
+  macro_rules! external_doc_test {
+    ($x:expr) => {
+        #[doc = $x]
+        extern {}
+    };
+  }
+
+  external_doc_test!(include_str!("../README.md"));
 }
