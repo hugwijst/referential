@@ -37,3 +37,9 @@ This crate has not seen much real-world usage and has not been reviewed, so usag
 * [`rental`](https://crates.io/crates/rental)
 * [`owning_ref`](https://crates.io/crates/owning_ref)
 * [`ghost-cell`](https://crates.io/crates/ghost-cell)
+
+## License
+
+Licensed under either of
+* Apache License, Version 2.0
+* MIT License
