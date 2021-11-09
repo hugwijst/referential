@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 
-trait FromData<'a, P: ?Sized> {
+pub trait FromData<'a, P: ?Sized> {
     fn from_data(data: &'a P) -> Self;
 }
 
@@ -390,5 +390,24 @@ mod tests {
 
         assert_eq!(*generics.referencing().last_element, 'e');
         assert_eq!(generics.referencing().last_element, &generics.owning()[2]);
+    }
+
+    /// Test the aliasing issue that hit `OwningRef`: https://github.com/Kimundi/owning-ref-rs/issues/49.
+    #[test]
+    fn aliasing_test() {
+        use std::cell::Cell;
+        struct CellRef<'a>(&'a Cell<u8>);
+        referential! {
+            struct Aliasing + 'a (CellRef<'a>);
+        }
+
+        let referential = Aliasing::new_with(Box::new(Cell::new(42)), |b| CellRef(b));
+        assert_eq!(referential.referencing().0.get(), 42);
+        referential.owning().set(10);
+        referential.referencing().0.set(20);
+        assert_eq!(
+            referential.owning().get(),
+            20
+        );
     }
 }
