@@ -394,6 +394,7 @@ mod tests {
     }
 }
 
+#[cfg(feature = "test-readme")]
 #[cfg(doctest)]
 mod test_readme {
   macro_rules! external_doc_test {
