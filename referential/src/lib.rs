@@ -1,4 +1,6 @@
-#![cfg_attr(not(test), no_std)]
+// #![cfg_attr(not(test), no_std)]
+
+mod test;
 
 pub trait FromData<'a, P: ?Sized> {
     fn from_data(data: &'a P) -> Self;
@@ -401,5 +403,5 @@ mod test_readme {
     };
   }
 
-  external_doc_test!(include_str!("../README.md"));
+  external_doc_test!(include_str!("../../README.md"));
 }
