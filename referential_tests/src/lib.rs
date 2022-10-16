@@ -44,7 +44,7 @@ fn no_generics() {
 #[test]
 fn empty_generics() {
     #[referential('a)]
-    struct EmptyGenerics< > (Refs<'a>);
+    struct EmptyGenerics(Refs<'a>);
 
     let referential = EmptyGenerics::new(Box::new(OwnedVec::new(5)));
     assert_eq!(*referential.referencing().last_element, 4);
@@ -57,7 +57,7 @@ fn empty_generics() {
 #[test]
 fn new_with() {
     #[referential('a)]
-    struct NoGenerics (Refs<'a>);
+    struct NoGenerics(Refs<'a>);
 
     let data = Box::new(OwnedVec::new(5));
     let referential = NoGenerics::new_with(data, |d| Refs {
@@ -78,8 +78,7 @@ fn ref_has_outside_lifetimes() {
     }
 
     #[referential('o)]
-    struct OutsideRef<'b> (DoubleRefs<'o, 'b>);
-    
+    struct OutsideRef<'b>(DoubleRefs<'o, 'b>);
 
     let stack_vec = vec![0, 1, 2];
     let data = Box::new(OwnedVec::new(5));
@@ -115,14 +114,14 @@ fn ref_without_lifetimes() {
     }
 
     #[referential('o)]
-    struct ReferentialWithoutLifetime (NoLifetimeRef);
+    struct ReferentialWithoutLifetime(NoLifetimeRef);
 
     let data = Rc::new(OwnedVec::new(4));
     let referential = ReferentialWithoutLifetime::new(data.clone());
     assert_eq!(referential.referencing().max, 3);
 
     #[referential('p)]
-    struct ReferentialEmptyLifetime (NoLifetimeRef<>);
+    struct ReferentialEmptyLifetime(NoLifetimeRef);
     let referential =
         ReferentialEmptyLifetime::new_with(data.clone(), |_| NoLifetimeRef { max: 4 });
     assert_eq!(referential.referencing().max, 4);
@@ -132,7 +131,7 @@ fn ref_without_lifetimes() {
 fn ref_to_ref() {
     struct U8Referencer<'a>(&'a u8);
     #[referential('b)]
-    struct U8Ref (U8Referencer<'b>);
+    struct U8Ref(U8Referencer<'b>);
 
     let val: u8 = 5;
     let referential = U8Ref::new_with(&val, |v| U8Referencer(v));
@@ -147,7 +146,7 @@ fn ref_to_ref() {
 fn derive_clone() {
     #[referential('b)]
     #[derive(Clone)]
-    struct ClonableReferential (Refs<'b>);
+    struct ClonableReferential(Refs<'b>);
 
     let referential = ClonableReferential::new(Box::new(OwnedVec::new(5)));
     assert_eq!(*referential.referencing().last_element, 4);
@@ -166,7 +165,7 @@ fn derive_clone() {
 fn rc_pinned() {
     use std::rc::Rc;
     #[referential('a)]
-    struct Simple<> (Refs<'a>);
+    struct Simple(Refs<'a>);
 
     let data = OwnedVec::new(2);
     let simple = Simple::new(Rc::new(data));
@@ -177,7 +176,7 @@ fn rc_pinned() {
 #[test]
 fn into_owned() {
     #[referential('a)]
-    struct Simple (Refs<'a>);
+    struct Simple(Refs<'a>);
 
     let data = OwnedVec::new(2);
     let simple = Simple::new(Box::new(data.clone()));
@@ -199,7 +198,7 @@ fn generics() {
     }
 
     #[referential('a)]
-    struct Generic<T: 'a> (GenericRefs<'a, T>);
+    struct Generic<T: 'a>(GenericRefs<'a, T>);
 
     let data = Box::new(vec!['a', 'b', 'e']);
     let generics = Generic::new_with(data, |d| GenericRefs {
@@ -216,26 +215,23 @@ fn aliasing_test() {
     use std::cell::Cell;
     struct CellRef<'a>(&'a Cell<u8>);
     #[referential('a)]
-    struct Aliasing (CellRef<'a>);
+    struct Aliasing(CellRef<'a>);
 
     let referential = Aliasing::new_with(Box::new(Cell::new(42)), |b| CellRef(b));
     assert_eq!(referential.referencing().0.get(), 42);
     referential.owning().set(10);
     referential.referencing().0.set(20);
-    assert_eq!(
-        referential.owning().get(),
-        20
-    );
+    assert_eq!(referential.owning().get(), 20);
 }
 
 #[cfg(feature = "test-readme")]
 #[cfg(doctest)]
 mod test_readme {
     macro_rules! external_doc_test {
-    ($x:expr) => {
-        #[doc = $x]
-        extern {}
-    };
+        ($x:expr) => {
+            #[doc = $x]
+            extern "C" {}
+        };
     }
 
     external_doc_test!(include_str!("../../README.md"));
