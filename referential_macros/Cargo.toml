@@ -12,4 +12,4 @@ name = "referential_macros"
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"
-syn = { version = "1.0", features = ["parsing", "full"] }
+syn = { version = "1.0", features = ["parsing", "full", "fold", "extra-traits"] }

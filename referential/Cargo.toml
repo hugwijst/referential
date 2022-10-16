@@ -7,7 +7,7 @@ repository = ""
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+referential_macros = { version = "=0.1.0", path = "../referential_macros" }
+stable_deref_trait = "1.2"
 
-
-[features]
-test-readme = []
+[dev-dependencies]

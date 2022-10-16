@@ -2,4 +2,5 @@
 members = [
     "referential",
     "referential_macros",
+    "referential_tests",
 ]

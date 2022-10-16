@@ -12,9 +12,8 @@ struct Indices<'a> {
     words: Vec<&'a str>,
 }
 
-referential!{
-    struct TextParser + 'a (Indices<'a>);
-}
+#[referential('a)]
+struct TextParser (Indices<'a>);
 
 let parser = TextParser::new_with(
     "Hello beautiful world!",
@@ -29,7 +28,7 @@ assert!(std::ptr::eq(parser.owning().as_ptr(), parser.referencing().words[0].as_
 This crate has not seen much real-world usage and has not been reviewed, so usage could lead to undefined behavior.
 
 ## Minimum Stable Rust Version
-`referential` uses `Pin::into_inner`, which requires at least **Rust 1.39.0** to compile.
+This crate requires at least **Rust 1.56.0** to compile.
 
 ## Related projects
 * [`self_cell`](https://crates.io/crates/self_cell)
