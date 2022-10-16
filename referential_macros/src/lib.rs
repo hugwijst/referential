@@ -32,12 +32,11 @@ fn get_ty_generics(ty: &syn::Type) -> Vec<GenericArgument> {
             .path
             .segments
             .iter()
-            .map(|segment| match &segment.arguments {
+            .flat_map(|segment| match &segment.arguments {
                 syn::PathArguments::None => vec![],
                 syn::PathArguments::AngleBracketed(args) => args.args.iter().cloned().collect(),
                 syn::PathArguments::Parenthesized(_) => panic!("todo"),
             })
-            .flatten()
             .collect(),
         syn::Type::Ptr(ty) => get_ty_generics(&ty.elem),
         syn::Type::Reference(ty) => {
@@ -53,8 +52,7 @@ fn get_ty_generics(ty: &syn::Type) -> Vec<GenericArgument> {
         syn::Type::Tuple(ty) => ty
             .elems
             .iter()
-            .map(|ty| get_ty_generics(ty).into_iter())
-            .flatten()
+            .flat_map(|ty| get_ty_generics(ty).into_iter())
             .collect(),
         syn::Type::Verbatim(_) => vec![],
         _ => vec![],
@@ -131,9 +129,9 @@ fn replace_lifetime_generic_param(
                     syn::TypeParamBound::Lifetime(lt) => replace_lifetime_lt(lt, orig, new),
                 }
             }
-            ty.default
-                .as_mut()
-                .map(|def_ty| replace_lifetime_ty(def_ty, orig, new));
+            if let Some(def_ty) = ty.default.as_mut() {
+                replace_lifetime_ty(def_ty, orig, new);
+            }
         }
         syn::GenericParam::Lifetime(lt) => {
             replace_lifetime_lt(&mut lt.lifetime, orig, new);
@@ -273,7 +271,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
 
     let mut referential_struct_params_lt_static = struct_params.clone();
     for param in referential_struct_params_lt_static.iter_mut() {
-        replace_lifetime_generic_param(param, &attr_owned_lifetime, &static_lifetime);
+        replace_lifetime_generic_param(param, attr_owned_lifetime, &static_lifetime);
     }
     if !referential_struct_params_lt_static.empty_or_trailing() {
         referential_struct_params_lt_static.push_punct(Default::default());
@@ -307,7 +305,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
     let field_ty = &field.ty;
     let ty_generics = get_ty_generics(field_ty);
 
-    let static_lifetime_argument = GenericArgument::Lifetime(static_lifetime.clone());
+    let static_lifetime_argument = GenericArgument::Lifetime(static_lifetime);
     let owned_lifetime_argument = GenericArgument::Lifetime(attr.owned_lifetime.clone());
     let ty_lifetimes_replaced_static = ty_generics.iter().map(|argument| {
         if argument == &owned_lifetime_argument {
