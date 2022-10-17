@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use referential::{referential, FromData};
+use referential::{referential, FromOwned};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct OwnedVec {
@@ -20,8 +20,8 @@ pub struct Refs<'a> {
     last_element: &'a u8,
 }
 
-impl<'a> FromData<'a, OwnedVec> for Refs<'a> {
-    fn from_data(data: &'a OwnedVec) -> Self {
+impl<'a> FromOwned<'a, OwnedVec> for Refs<'a> {
+    fn from_owned(data: &'a OwnedVec) -> Self {
         Self {
             last_element: &data.vec[data.vec.len() - 1],
         }
@@ -105,8 +105,8 @@ fn ref_without_lifetimes() {
         max: u8,
     }
 
-    impl FromData<'_, OwnedVec> for NoLifetimeRef {
-        fn from_data(data: &OwnedVec) -> Self {
+    impl FromOwned<'_, OwnedVec> for NoLifetimeRef {
+        fn from_owned(data: &OwnedVec) -> Self {
             NoLifetimeRef {
                 max: data.vec.iter().copied().max().unwrap_or(0),
             }

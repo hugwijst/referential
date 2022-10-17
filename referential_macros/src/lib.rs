@@ -39,14 +39,12 @@ fn get_ty_generics(ty: &syn::Type) -> Vec<GenericArgument> {
             })
             .collect(),
         syn::Type::Ptr(ty) => get_ty_generics(&ty.elem),
-        syn::Type::Reference(ty) => {
-            let mut params = ty
-                .lifetime
-                .as_ref()
-                .map_or_else(Vec::new, |lt| vec![GenericArgument::Lifetime(lt.clone())]);
-            params.extend(get_ty_generics(&ty.elem));
-            params
-        }
+        syn::Type::Reference(ty) => ty
+            .lifetime
+            .iter()
+            .map(|lt| GenericArgument::Lifetime(lt.clone()))
+            .chain(get_ty_generics(&ty.elem))
+            .collect(),
         syn::Type::Slice(ty) => get_ty_generics(&ty.elem),
         syn::Type::TraitObject(_) => panic!("todo"),
         syn::Type::Tuple(ty) => ty
@@ -159,20 +157,20 @@ fn replace_lifetime_generic_param(
 ///     pub(super) trait __NameType<'a, 'b, T> {
 ///         type Type;
 ///     }
-///     pub(super) struct Referential<'b, T, P> {
+///     pub(super) struct Inner<'b, T, P> {
 ///         referencing: <() as __NameType<'static, 'b, T>>::Type,
 ///         owned: P,
 ///     }
-///     impl<'b, T, P> Referential<'b, T, P>
+///     impl<'b, T, P> Inner<'b, T, P>
 ///     where
 ///         P: ::referential::StableDeref,
 ///     {
 ///         #![allow(dead_code)]
 ///         pub fn new_with<F>(owned: P, f: F) -> Self
 ///         where
-///             F: for<'o> FnOnce(
-///                 &'o <P as ::core::ops::Deref>::Target,
-///             ) -> <() as __NameType<'o, 'b>>::Type,
+///             F: for<'a> FnOnce(
+///                 &'a <P as ::core::ops::Deref>::Target,
+///             ) -> <() as __NameType<'a, 'b>>::Type,
 ///         {
 ///             let referencing_local = (f)(owned.deref());
 ///             let referencing_static = unsafe { ::core::mem::transmute(referencing_local) };
@@ -181,53 +179,49 @@ fn replace_lifetime_generic_param(
 ///                 owned,
 ///             }
 ///         }
-///         pub fn owning<'o>(&'o self) -> &'o <P as ::core::ops::Deref>::Target {
+///         pub fn owning<'a>(&'a self) -> &'a <P as ::core::ops::Deref>::Target {
 ///             self.owned.deref()
 ///         }
 ///         pub fn into_owning(self) -> P {
 ///             self.owned
 ///         }
-///         pub fn referencing<'o>(&'o self) -> &'o <() as __NameType<'o, 'b, T>>::Type {
+///         pub fn referencing<'a>(&'a self) -> &'a <() as __NameType<'a, 'b, T>>::Type {
 ///             &self.referencing
 ///         }
 ///     }
 /// }
 /// pub struct Referential<'b, T, P> {
-///     inner: __referential_inner_mod_0::Referential<'b, T, P>,
+///     inner: __referential_inner_mod_0::Inner<'b, T, P>,
 /// }
-/// impl<'b, T, P> Referential<'b, T, P> {
+/// impl<'b, T, P> Referential<'b, T, P>
+/// where
+///     P: ::referential::StableDeref
+/// {
 ///     #![allow(dead_code)]
 ///     pub fn new_with<F>(owned: P, f: F) -> Self
 ///     where
-///         F: for<'o> FnOnce(
-///             &'o <P as ::core::ops::Deref>::Target,
-///         ) -> <() as __NameType<'o, 'b>>::Type,
+///         F: for<'a> FnOnce(&'a <P as ::core::ops::Deref>::Target) -> Referencing<'a, 'b, T>,
 ///     {
-///         let referencing_local = (f)(owned.deref());
-///         let referencing_static = unsafe { ::core::mem::transmute(referencing_local) };
-///         Self {
-///             referencing: referencing_static,
-///             owned,
-///         }
+///         Self { inner: __referential_inner_mod_0::Inner::new_with(owned, f) }
 ///     }
-///     pub fn owning<'o>(&'o self) -> &'o <P as ::core::ops::Deref>::Target {
-///         self.owned.deref()
+///     pub fn owning<'a>(&'a self) -> &'a <P as ::core::ops::Deref>::Target {
+///         self.inner.owning()
 ///     }
 ///     pub fn into_owning(self) -> P {
-///         self.owned
+///         self.inner.into_owning()
 ///     }
-///     pub fn referencing<'o>(&'o self) -> &'o <() as __NameType<'o, 'b, T>>::Type {
-///         &self.referencing
+///     pub fn referencing<'a>(&'a self) -> &'a <() as __NameType<'a, 'b, T>>::Type {
+///         &self.inner.referencing()
 ///     }
 /// impl<'b, T, P> Referential<'b, T, P>
 /// where
 ///     P: ::referential::StableDeref,
-///     for<'o> Referencing<'o, 'b>: ::referential::FromData<'o, P::Target>,
+///     for<'a> Referencing<'a, 'b>: ::referential::FromOwned<'a, P::Target>,
 /// {
 ///     #![allow(dead_code)]
 ///     pub fn new(owning: P) -> Self {
-///         use ::referential::FromData;
-///         Self::new_with(owning, |p_ref| <DoubleRefs<'_, 'b, T>>::from_data(p_ref))
+///         use ::referential::FromOwned;
+///         Self::new_with(owning, |p_ref| <DoubleRefs<'_, 'b, T>>::from_owned(p_ref))
 ///     }
 /// }
 /// ```
@@ -239,6 +233,53 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
     //
     // Example: `'a`
     let attr_owned_lifetime = &attr.owned_lifetime;
+
+    // General properties of the struct this attributes is applied to.
+    let ref_struct_attributes = &item_struct.attrs;
+    let ref_struct_ident = &item_struct.ident;
+    let ref_struct_vis = &item_struct.vis;
+    let ref_struct_generics = &item_struct.generics;
+    let ref_struct_where_clause = &ref_struct_generics.where_clause;
+    let ref_struct_params = &ref_struct_generics.params;
+
+    // Referential struct generic parameters, with the owned lifetime substituted by the `'static`
+    // and with a traiting comma.
+    //
+    // For example, with input "#[referential('a)] Referential<T: 'a>(...)" this would be
+    // `T: 'static,`.
+    let mut ref_struct_params_lt_static = ref_struct_params.clone();
+    for param in ref_struct_params_lt_static.iter_mut() {
+        replace_lifetime_generic_param(param, attr_owned_lifetime, &static_lifetime);
+    }
+    if !ref_struct_params_lt_static.empty_or_trailing() {
+        ref_struct_params_lt_static.push_punct(Default::default());
+    }
+
+    // Generic arguments derived from the referential structs parameters, with a trailing comma.
+    //
+    // Example: `'b, T,`
+    let ref_struct_args = ref_struct_params
+        .iter()
+        .map(|param| match param {
+            syn::GenericParam::Type(ty) => syn::GenericArgument::Type(
+                syn::TypePath {
+                    qself: None,
+                    path: ty.ident.clone().into(),
+                }
+                .into(),
+            ),
+            syn::GenericParam::Lifetime(lt) => syn::GenericArgument::Lifetime(lt.lifetime.clone()),
+            syn::GenericParam::Const(ct) => syn::GenericArgument::Const(
+                syn::ExprPath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path: ct.ident.clone().into(),
+                }
+                .into(),
+            ),
+        })
+        .map(|param| syn::punctuated::Pair::Punctuated(param, Comma::default()))
+        .collect::<Punctuated<syn::GenericArgument, _>>();
 
     // Extract single field of item struct.
     //
@@ -263,51 +304,19 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
             "expected single unnamed field, found unit struct",
         )),
     }?;
-
-    let struct_vis = &item_struct.vis;
-    let struct_generics = &item_struct.generics;
-    let struct_where_clause = &struct_generics.where_clause;
-    let struct_params = &struct_generics.params;
-
-    let mut referential_struct_params_lt_static = struct_params.clone();
-    for param in referential_struct_params_lt_static.iter_mut() {
-        replace_lifetime_generic_param(param, attr_owned_lifetime, &static_lifetime);
-    }
-    if !referential_struct_params_lt_static.empty_or_trailing() {
-        referential_struct_params_lt_static.push_punct(Default::default());
-    }
-    let referential_struct_args = struct_params
-        .iter()
-        .map(|param| match param {
-            syn::GenericParam::Type(ty) => syn::GenericArgument::Type(
-                syn::TypePath {
-                    qself: None,
-                    path: ty.ident.clone().into(),
-                }
-                .into(),
-            ),
-            syn::GenericParam::Lifetime(lt) => syn::GenericArgument::Lifetime(lt.lifetime.clone()),
-            syn::GenericParam::Const(ct) => syn::GenericArgument::Const(
-                syn::ExprPath {
-                    attrs: Vec::new(),
-                    qself: None,
-                    path: ct.ident.clone().into(),
-                }
-                .into(),
-            ),
-        })
-        .map(|param| syn::punctuated::Pair::Punctuated(param, Comma::default()))
-        .collect::<Punctuated<syn::GenericArgument, _>>();
-
-    let ref_struct_attributes = &item_struct.attrs;
-    let ref_struct_ident = &item_struct.ident;
-
     let field_ty = &field.ty;
-    let ty_generics = get_ty_generics(field_ty);
+
+    // All type generics in the field, as generic arguments.
+    //
+    // Example: `'a, 'b, T`.
+    let ty_generic_args = get_ty_generics(field_ty);
 
     let static_lifetime_argument = GenericArgument::Lifetime(static_lifetime);
     let owned_lifetime_argument = GenericArgument::Lifetime(attr.owned_lifetime.clone());
-    let ty_lifetimes_replaced_static = ty_generics.iter().map(|argument| {
+    // Type generic arguments, with owned lifetime replaced by `'static`.
+    //
+    // Example: `'static, 'b, T`.
+    let ty_generic_args_static = ty_generic_args.iter().map(|argument| {
         if argument == &owned_lifetime_argument {
             &static_lifetime_argument
         } else {
@@ -315,6 +324,9 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
         }
     });
 
+    // Field type, with owned lifetime elided.
+    //
+    // Example: `Referencing<'_, 'b, T>`.
     let mut field_ty_lt_elided = field_ty.clone();
     replace_lifetime_ty(
         &mut field_ty_lt_elided,
@@ -323,6 +335,13 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
     );
 
     thread_local!(static REFERENTIAL_COUNT: Cell<usize> = Cell::new(0));
+    // Identifier of the "private" module holding the referential structs internals.
+    //
+    // The inner structure is hidden as the lifetimes of the stored referencing struct are
+    // incorrect. Only through the methods do we get correct lifetimes.
+    //
+    // By storing the internal `Inner` struct in the module, we still allow users to implement
+    // traits on the struct they define.
     let mod_ident = REFERENTIAL_COUNT.with(|count_cell| {
         let count = count_cell.get();
         count_cell.set(count + 1);
@@ -333,28 +352,28 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
     });
 
     let out = quote! {
-        impl <#attr_owned_lifetime, #struct_params> #mod_ident::__NameType <#(#ty_generics, )*> for ()
-            #struct_where_clause
+        impl <#attr_owned_lifetime, #ref_struct_params> #mod_ident::__NameType <#(#ty_generic_args, )*> for ()
+            #ref_struct_where_clause
         {
             type Type = #field_ty;
         }
         mod #mod_ident {
-            pub(super) trait __NameType <#(#ty_generics, )*> {
+            pub(super) trait __NameType <#(#ty_generic_args, )*> {
                 type Type;
             }
 
             #(#ref_struct_attributes)*
-            pub(super) struct #ref_struct_ident<#referential_struct_params_lt_static P>
-                #struct_where_clause
+            pub(super) struct Inner<#ref_struct_params_lt_static P>
+                #ref_struct_where_clause
             {
                 // The order of elements here is critical to ensure safety: the
                 // drop order is the same as declared here. First dropping the referenced
                 // data is obviously unsafe, dropping the references first should be safe.
-                referencing: <() as __NameType<#(#ty_lifetimes_replaced_static, )*>>::Type,
+                referencing: <() as __NameType<#(#ty_generic_args_static, )*>>::Type,
                 owned: P,
             }
 
-            impl<#referential_struct_params_lt_static P> #ref_struct_ident<#referential_struct_args P>
+            impl<#ref_struct_params_lt_static P> Inner<#ref_struct_args P>
             where
                 P: ::referential::StableDeref,
             {
@@ -364,7 +383,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                 where
                     F: for<#attr_owned_lifetime> FnOnce(
                         &#attr_owned_lifetime <P as ::core::ops::Deref>::Target
-                    ) -> <() as __NameType<#(#ty_generics, )*>>::Type,
+                    ) -> <() as __NameType<#(#ty_generic_args, )*>>::Type,
                 {
                     let referencing_local = (f)(owned.deref());
                     let referencing_static = unsafe {
@@ -384,19 +403,19 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
 
                 pub(super) fn referencing<#attr_owned_lifetime>(
                     &#attr_owned_lifetime self
-                ) -> &#attr_owned_lifetime <() as __NameType<#(#ty_generics, )*>>::Type {
+                ) -> &#attr_owned_lifetime <() as __NameType<#(#ty_generic_args, )*>>::Type {
                     &self.referencing
                 }
             }
         }
         #(#ref_struct_attributes)*
-        #struct_vis struct #ref_struct_ident<#referential_struct_params_lt_static P>
-            #struct_where_clause
+        #ref_struct_vis struct #ref_struct_ident<#ref_struct_params_lt_static P>
+            #ref_struct_where_clause
         {
-            inner: #mod_ident::#ref_struct_ident<#referential_struct_args P>,
+            inner: #mod_ident::Inner<#ref_struct_args P>,
         }
 
-        impl<#referential_struct_params_lt_static P> #ref_struct_ident<#referential_struct_args P>
+        impl<#ref_struct_params_lt_static P> #ref_struct_ident<#ref_struct_args P>
         where
             P: ::referential::StableDeref,
         {
@@ -406,7 +425,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
             where
                 F: for<#attr_owned_lifetime> FnOnce(&#attr_owned_lifetime <P as ::core::ops::Deref>::Target) -> #field_ty
             {
-                Self { inner: #mod_ident::#ref_struct_ident::new_with(owned, f) }
+                Self { inner: #mod_ident::Inner::new_with(owned, f) }
             }
 
             pub fn owning<#attr_owned_lifetime>(&#attr_owned_lifetime self) -> &#attr_owned_lifetime <P as ::core::ops::Deref>::Target {
@@ -422,16 +441,16 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
             }
         }
 
-        impl<#referential_struct_params_lt_static P> #ref_struct_ident<#referential_struct_args P>
+        impl<#ref_struct_params_lt_static P> #ref_struct_ident<#ref_struct_args P>
         where
             P: ::referential::StableDeref,
-            for<#attr_owned_lifetime> #field_ty: ::referential::FromData<#attr_owned_lifetime, P::Target>,
+            for<#attr_owned_lifetime> #field_ty: ::referential::FromOwned<#attr_owned_lifetime, P::Target>,
         {
             #![allow(dead_code)]
 
             pub fn new(owning: P) -> Self {
-                use ::referential::FromData;
-                Self::new_with(owning, |p_ref| <#field_ty_lt_elided>::from_data(p_ref))
+                use ::referential::FromOwned;
+                Self::new_with(owning, |p_ref| <#field_ty_lt_elided>::from_owned(p_ref))
             }
         }
 
