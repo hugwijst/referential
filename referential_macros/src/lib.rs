@@ -1,6 +1,7 @@
 extern crate proc_macro;
 
 use std::cell::Cell;
+use std::collections::HashSet;
 
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
@@ -35,7 +36,7 @@ fn get_ty_generics(ty: &syn::Type) -> Vec<GenericArgument> {
             .flat_map(|segment| match &segment.arguments {
                 syn::PathArguments::None => vec![],
                 syn::PathArguments::AngleBracketed(args) => args.args.iter().cloned().collect(),
-                syn::PathArguments::Parenthesized(_) => panic!("todo"),
+                syn::PathArguments::Parenthesized(_) => todo!(),
             })
             .collect(),
         syn::Type::Ptr(ty) => get_ty_generics(&ty.elem),
@@ -46,7 +47,7 @@ fn get_ty_generics(ty: &syn::Type) -> Vec<GenericArgument> {
             .chain(get_ty_generics(&ty.elem))
             .collect(),
         syn::Type::Slice(ty) => get_ty_generics(&ty.elem),
-        syn::Type::TraitObject(_) => panic!("todo"),
+        syn::Type::TraitObject(_) => todo!(),
         syn::Type::Tuple(ty) => ty
             .elems
             .iter()
@@ -55,6 +56,44 @@ fn get_ty_generics(ty: &syn::Type) -> Vec<GenericArgument> {
         syn::Type::Verbatim(_) => vec![],
         _ => vec![],
     }
+}
+
+/// Check if any of the `params` define a type with identifier `ident`.
+fn params_contain_ident<'a>(
+    mut params: impl Iterator<Item = &'a syn::GenericParam>,
+    ident: &str,
+) -> bool {
+    params.any(|p| match p {
+        syn::GenericParam::Type(ty) => ty.ident == ident,
+        syn::GenericParam::Lifetime(_) | syn::GenericParam::Const(_) => false,
+    })
+}
+
+fn deduplicate_generic_arguments(args: &[syn::GenericArgument]) -> Vec<&GenericArgument> {
+    let mut dedup_set = HashSet::new();
+    args.iter().filter(|a| dedup_set.insert(*a)).collect()
+}
+
+fn create_ident_not_in_params<'a>(
+    ident_base: &str,
+    params: impl Iterator<Item = &'a syn::GenericParam> + Clone,
+) -> syn::Ident {
+    std::iter::once(None)
+        .chain((1u32..).map(Some))
+        .find_map(|ident_num| {
+            let param_ident_name = format!(
+                "{}{}",
+                ident_base,
+                ident_num.map_or(String::new(), |i| i.to_string())
+            );
+
+            if params_contain_ident(params.clone(), &param_ident_name) {
+                None
+            } else {
+                Some(syn::Ident::new(&param_ident_name, Span::call_site()))
+            }
+        })
+        .unwrap()
 }
 
 fn replace_lifetime_lt(lt: &mut syn::Lifetime, orig: &syn::Lifetime, new: &syn::Lifetime) {
@@ -72,13 +111,13 @@ fn replace_lifetime_path(path: &mut syn::Path, orig: &syn::Lifetime, new: &syn::
                     match arg {
                         syn::GenericArgument::Lifetime(lt) => replace_lifetime_lt(lt, orig, new),
                         syn::GenericArgument::Type(ty) => replace_lifetime_ty(ty, orig, new),
-                        syn::GenericArgument::Binding(_) => panic!("todo"),
-                        syn::GenericArgument::Constraint(_) => panic!("todo"),
-                        syn::GenericArgument::Const(_) => panic!("todo"),
+                        syn::GenericArgument::Binding(_) => todo!(),
+                        syn::GenericArgument::Constraint(_) => todo!(),
+                        syn::GenericArgument::Const(_) => todo!(),
                     }
                 }
             }
-            syn::PathArguments::Parenthesized(_) => panic!("todo"),
+            syn::PathArguments::Parenthesized(_) => todo!(),
         }
     }
 }
@@ -102,7 +141,7 @@ fn replace_lifetime_ty(ty: &mut syn::Type, orig: &syn::Lifetime, new: &syn::Life
             replace_lifetime_ty(&mut ty.elem, orig, new)
         }
         syn::Type::Slice(ty) => replace_lifetime_ty(&mut ty.elem, orig, new),
-        syn::Type::TraitObject(_) => panic!("todo"),
+        syn::Type::TraitObject(_) => todo!(),
         syn::Type::Tuple(ty) => ty
             .elems
             .iter_mut()
@@ -157,19 +196,19 @@ fn replace_lifetime_generic_param(
 ///     pub(super) trait __NameType<'a, 'b, T> {
 ///         type Type;
 ///     }
-///     pub(super) struct Inner<'b, T, P> {
+///     pub(super) struct Inner<'b, T, O> {
 ///         referencing: <() as __NameType<'static, 'b, T>>::Type,
-///         owned: P,
+///         owned: O,
 ///     }
-///     impl<'b, T, P> Inner<'b, T, P>
+///     impl<'b, T, O> Inner<'b, T, O>
 ///     where
-///         P: ::referential::StableDeref,
+///         O: ::referential::StableDeref,
 ///     {
 ///         #![allow(dead_code)]
-///         pub fn new_with<F>(owned: P, f: F) -> Self
+///         pub fn new_with<F>(owned: O, f: F) -> Self
 ///         where
 ///             F: for<'a> FnOnce(
-///                 &'a <P as ::core::ops::Deref>::Target,
+///                 &'a <O as ::core::ops::Deref>::Target,
 ///             ) -> <() as __NameType<'a, 'b>>::Type,
 ///         {
 ///             let referencing_local = (f)(owned.deref());
@@ -179,10 +218,10 @@ fn replace_lifetime_generic_param(
 ///                 owned,
 ///             }
 ///         }
-///         pub fn owning<'a>(&'a self) -> &'a <P as ::core::ops::Deref>::Target {
+///         pub fn owning<'a>(&'a self) -> &'a <O as ::core::ops::Deref>::Target {
 ///             self.owned.deref()
 ///         }
-///         pub fn into_owning(self) -> P {
+///         pub fn into_owning(self) -> O {
 ///             self.owned
 ///         }
 ///         pub fn referencing<'a>(&'a self) -> &'a <() as __NameType<'a, 'b, T>>::Type {
@@ -190,38 +229,38 @@ fn replace_lifetime_generic_param(
 ///         }
 ///     }
 /// }
-/// pub struct Referential<'b, T, P> {
-///     inner: __referential_inner_mod_0::Inner<'b, T, P>,
+/// pub struct Referential<'b, T, O> {
+///     inner: __referential_inner_mod_0::Inner<'b, T, O>,
 /// }
-/// impl<'b, T, P> Referential<'b, T, P>
+/// impl<'b, T, O> Referential<'b, T, O>
 /// where
-///     P: ::referential::StableDeref
+///     O: ::referential::StableDeref
 /// {
 ///     #![allow(dead_code)]
-///     pub fn new_with<F>(owned: P, f: F) -> Self
+///     pub fn new_with<F>(owned: O, f: F) -> Self
 ///     where
-///         F: for<'a> FnOnce(&'a <P as ::core::ops::Deref>::Target) -> Referencing<'a, 'b, T>,
+///         F: for<'a> FnOnce(&'a <O as ::core::ops::Deref>::Target) -> Referencing<'a, 'b, T>,
 ///     {
 ///         Self { inner: __referential_inner_mod_0::Inner::new_with(owned, f) }
 ///     }
-///     pub fn owning<'a>(&'a self) -> &'a <P as ::core::ops::Deref>::Target {
+///     pub fn owning<'a>(&'a self) -> &'a <O as ::core::ops::Deref>::Target {
 ///         self.inner.owning()
 ///     }
-///     pub fn into_owning(self) -> P {
+///     pub fn into_owning(self) -> O {
 ///         self.inner.into_owning()
 ///     }
 ///     pub fn referencing<'a>(&'a self) -> &'a <() as __NameType<'a, 'b, T>>::Type {
 ///         &self.inner.referencing()
 ///     }
-/// impl<'b, T, P> Referential<'b, T, P>
+/// impl<'b, T, P> Referential<'b, T, O>
 /// where
-///     P: ::referential::StableDeref,
-///     for<'a> Referencing<'a, 'b>: ::referential::FromOwned<'a, P::Target>,
+///     O: ::referential::StableDeref,
+///     for<'a> Referencing<'a, 'b>: ::referential::FromOwned<'a, O::Target>,
 /// {
 ///     #![allow(dead_code)]
-///     pub fn new(owning: P) -> Self {
+///     pub fn new(owning: O) -> Self {
 ///         use ::referential::FromOwned;
-///         Self::new_with(owning, |p_ref| <DoubleRefs<'_, 'b, T>>::from_owned(p_ref))
+///         Self::new_with(owning, |o_ref| <DoubleRefs<'_, 'b, T>>::from_owned(o_ref))
 ///     }
 /// }
 /// ```
@@ -281,6 +320,15 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
         .map(|param| syn::punctuated::Pair::Punctuated(param, Comma::default()))
         .collect::<Punctuated<syn::GenericArgument, _>>();
 
+    // Type identifier used to represent the owning data type.
+    //
+    // Example: `O`
+    let owned_type_param = create_ident_not_in_params("O", ref_struct_params.iter());
+    // Type identifier used to represent the constructor function in `new_with`.
+    //
+    // Example: `F`
+    let function_param = create_ident_not_in_params("F", ref_struct_params.iter());
+
     // Extract single field of item struct.
     //
     // Example: `Referencing<'a, 'b, T>`
@@ -310,13 +358,14 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
     //
     // Example: `'a, 'b, T`.
     let ty_generic_args = get_ty_generics(field_ty);
+    let ty_generic_args = deduplicate_generic_arguments(&ty_generic_args);
 
     let static_lifetime_argument = GenericArgument::Lifetime(static_lifetime);
     let owned_lifetime_argument = GenericArgument::Lifetime(attr.owned_lifetime.clone());
     // Type generic arguments, with owned lifetime replaced by `'static`.
     //
     // Example: `'static, 'b, T`.
-    let ty_generic_args_static = ty_generic_args.iter().map(|argument| {
+    let ty_generic_args_static = ty_generic_args.iter().map(|&argument| {
         if argument == &owned_lifetime_argument {
             &static_lifetime_argument
         } else {
@@ -363,26 +412,26 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
             }
 
             #(#ref_struct_attributes)*
-            pub(super) struct Inner<#ref_struct_params_lt_static P>
+            pub(super) struct Inner<#ref_struct_params_lt_static #owned_type_param>
                 #ref_struct_where_clause
             {
                 // The order of elements here is critical to ensure safety: the
                 // drop order is the same as declared here. First dropping the referenced
                 // data is obviously unsafe, dropping the references first should be safe.
                 referencing: <() as __NameType<#(#ty_generic_args_static, )*>>::Type,
-                owned: P,
+                owned: #owned_type_param,
             }
 
-            impl<#ref_struct_params_lt_static P> Inner<#ref_struct_args P>
+            impl<#ref_struct_params_lt_static #owned_type_param> Inner<#ref_struct_args #owned_type_param>
             where
-                P: ::referential::StableDeref,
+                #owned_type_param: ::referential::StableDeref,
             {
                 #![allow(dead_code)]
 
-                pub(super) fn new_with<F>(owned: P, f: F) -> Self
+                pub(super) fn new_with<#function_param>(owned: #owned_type_param, f: #function_param) -> Self
                 where
-                    F: for<#attr_owned_lifetime> FnOnce(
-                        &#attr_owned_lifetime <P as ::core::ops::Deref>::Target
+                    #function_param: for<#attr_owned_lifetime> FnOnce(
+                        &#attr_owned_lifetime <#owned_type_param as ::core::ops::Deref>::Target
                     ) -> <() as __NameType<#(#ty_generic_args, )*>>::Type,
                 {
                     let referencing_local = (f)(owned.deref());
@@ -393,11 +442,11 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                     Self { referencing: referencing_static, owned }
                 }
 
-                pub fn owning<#attr_owned_lifetime>(&#attr_owned_lifetime self) -> &#attr_owned_lifetime <P as ::core::ops::Deref>::Target {
+                pub(super) fn owning<#attr_owned_lifetime>(&#attr_owned_lifetime self) -> &#attr_owned_lifetime <#owned_type_param as ::core::ops::Deref>::Target {
                     self.owned.deref()
                 }
 
-                pub fn into_owning(self) -> P {
+                pub(super) fn into_owning(self) -> #owned_type_param {
                     self.owned
                 }
 
@@ -409,30 +458,30 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
             }
         }
         #(#ref_struct_attributes)*
-        #ref_struct_vis struct #ref_struct_ident<#ref_struct_params_lt_static P>
+        #ref_struct_vis struct #ref_struct_ident<#ref_struct_params_lt_static #owned_type_param>
             #ref_struct_where_clause
         {
-            inner: #mod_ident::Inner<#ref_struct_args P>,
+            inner: #mod_ident::Inner<#ref_struct_args #owned_type_param>,
         }
 
-        impl<#ref_struct_params_lt_static P> #ref_struct_ident<#ref_struct_args P>
+        impl<#ref_struct_params_lt_static #owned_type_param> #ref_struct_ident<#ref_struct_args #owned_type_param>
         where
-            P: ::referential::StableDeref,
+            #owned_type_param: ::referential::StableDeref,
         {
             #![allow(dead_code)]
 
-            pub fn new_with<F>(owned: P, f: F) -> Self
+            pub fn new_with<#function_param>(owned: #owned_type_param, f: #function_param) -> Self
             where
-                F: for<#attr_owned_lifetime> FnOnce(&#attr_owned_lifetime <P as ::core::ops::Deref>::Target) -> #field_ty
+                #function_param: for<#attr_owned_lifetime> FnOnce(&#attr_owned_lifetime <#owned_type_param as ::core::ops::Deref>::Target) -> #field_ty
             {
                 Self { inner: #mod_ident::Inner::new_with(owned, f) }
             }
 
-            pub fn owning<#attr_owned_lifetime>(&#attr_owned_lifetime self) -> &#attr_owned_lifetime <P as ::core::ops::Deref>::Target {
+            pub fn owning<#attr_owned_lifetime>(&#attr_owned_lifetime self) -> &#attr_owned_lifetime <#owned_type_param as ::core::ops::Deref>::Target {
                 self.inner.owning()
             }
 
-            pub fn into_owning(self) -> P {
+            pub fn into_owning(self) -> #owned_type_param {
                 self.inner.into_owning()
             }
 
@@ -441,16 +490,16 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
             }
         }
 
-        impl<#ref_struct_params_lt_static P> #ref_struct_ident<#ref_struct_args P>
+        impl<#ref_struct_params_lt_static #owned_type_param> #ref_struct_ident<#ref_struct_args #owned_type_param>
         where
-            P: ::referential::StableDeref,
-            for<#attr_owned_lifetime> #field_ty: ::referential::FromOwned<#attr_owned_lifetime, P::Target>,
+            #owned_type_param: ::referential::StableDeref,
+            for<#attr_owned_lifetime> #field_ty: ::referential::FromOwned<#attr_owned_lifetime, #owned_type_param::Target>,
         {
             #![allow(dead_code)]
 
-            pub fn new(owning: P) -> Self {
+            pub fn new(owning: #owned_type_param) -> Self {
                 use ::referential::FromOwned;
-                Self::new_with(owning, |p_ref| <#field_ty_lt_elided>::from_owned(p_ref))
+                Self::new_with(owning, |o_ref| <#field_ty_lt_elided>::from_owned(o_ref))
             }
         }
 
