@@ -1,0 +1,20 @@
+[package]
+name = "referential_macros"
+version = "0.1.0"
+authors = ["Hugo van der Wijst <hugo+crates@wij.st>"]
+edition = "2018"
+rust-version = "1.56.0"
+description = "Defines proc macro used in [`referential`] crate."
+repository = "https://github.com/hugwijst/referential/"
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+name = "referential_macros"
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "1.0", features = ["parsing", "full", "fold", "extra-traits"] }

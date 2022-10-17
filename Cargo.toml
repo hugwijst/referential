@@ -1,9 +1,6 @@
-[package]
-name = "referential"
-version = "0.1.0"
-authors = ["Hugo van der Wijst <hugo@wij.st>"]
-edition = "2018"
-repository = ""
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+[workspace]
+members = [
+    "referential",
+    "referential_macros",
+    "referential_tests",
+]
