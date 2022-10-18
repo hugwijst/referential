@@ -198,11 +198,12 @@ fn replace_lifetime_generic_param(
 ///     }
 ///     pub(super) struct Inner<'b, T, O> {
 ///         referencing: <() as __NameType<'static, 'b, T>>::Type,
-///         owned: O,
+///         owned: ::core::pin::Pin<O>,
 ///     }
 ///     impl<'b, T, O> Inner<'b, T, O>
 ///     where
-///         O: ::referential::StableDeref,
+///         O: ::core::ops::Deref,
+///         <O as ::core::ops::Deref>::Target: ::core::marker::Unpin,
 ///     {
 ///         #![allow(dead_code)]
 ///         pub fn new_with<F>(owned: O, f: F) -> Self
@@ -211,6 +212,8 @@ fn replace_lifetime_generic_param(
 ///                 &'a <O as ::core::ops::Deref>::Target,
 ///             ) -> <() as __NameType<'a, 'b>>::Type,
 ///         {
+///             use ::core::ops::Deref;
+///             let owned = ::core::pin::Pin::new(owned);
 ///             let referencing_local = (f)(owned.deref());
 ///             let referencing_static = unsafe { ::core::mem::transmute(referencing_local) };
 ///             Self {
@@ -219,10 +222,11 @@ fn replace_lifetime_generic_param(
 ///             }
 ///         }
 ///         pub fn owning<'a>(&'a self) -> &'a <O as ::core::ops::Deref>::Target {
+///             use ::core::ops::Deref;
 ///             self.owned.deref()
 ///         }
 ///         pub fn into_owning(self) -> O {
-///             self.owned
+///             ::core::pin::Pin::into_inner(self.owned)
 ///         }
 ///         pub fn referencing<'a>(&'a self) -> &'a <() as __NameType<'a, 'b, T>>::Type {
 ///             &self.referencing
@@ -234,7 +238,8 @@ fn replace_lifetime_generic_param(
 /// }
 /// impl<'b, T, O> Referential<'b, T, O>
 /// where
-///     O: ::referential::StableDeref
+///     O: ::core::ops::Deref,
+///     <O as ::core::ops::Deref>::Target: ::core::marker::Unpin,
 /// {
 ///     #![allow(dead_code)]
 ///     pub fn new_with<F>(owned: O, f: F) -> Self
@@ -254,7 +259,8 @@ fn replace_lifetime_generic_param(
 ///     }
 /// impl<'b, T, P> Referential<'b, T, O>
 /// where
-///     O: ::referential::StableDeref,
+///     O: ::core::ops::Deref,
+///     <O as ::core::ops::Deref>::Target: ::core::marker::Unpin,
 ///     for<'a> Referencing<'a, 'b>: ::referential::FromOwned<'a, O::Target>,
 /// {
 ///     #![allow(dead_code)]
@@ -419,12 +425,13 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                 // drop order is the same as declared here. First dropping the referenced
                 // data is obviously unsafe, dropping the references first should be safe.
                 referencing: <() as __NameType<#(#ty_generic_args_static, )*>>::Type,
-                owned: #owned_type_param,
+                owned: ::core::pin::Pin<#owned_type_param>,
             }
 
             impl<#ref_struct_params_lt_static #owned_type_param> Inner<#ref_struct_args #owned_type_param>
             where
-                #owned_type_param: ::referential::StableDeref,
+                #owned_type_param: ::core::ops::Deref,
+                <#owned_type_param as ::core::ops::Deref>::Target: ::core::marker::Unpin,
             {
                 #![allow(dead_code)]
 
@@ -434,6 +441,8 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                         &#attr_owned_lifetime <#owned_type_param as ::core::ops::Deref>::Target
                     ) -> <() as __NameType<#(#ty_generic_args, )*>>::Type,
                 {
+                    use ::core::ops::Deref;
+                    let owned = ::core::pin::Pin::new(owned);
                     let referencing_local = (f)(owned.deref());
                     let referencing_static = unsafe {
                         ::core::mem::transmute(referencing_local)
@@ -443,11 +452,12 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                 }
 
                 pub(super) fn owning<#attr_owned_lifetime>(&#attr_owned_lifetime self) -> &#attr_owned_lifetime <#owned_type_param as ::core::ops::Deref>::Target {
+                    use ::core::ops::Deref;
                     self.owned.deref()
                 }
 
                 pub(super) fn into_owning(self) -> #owned_type_param {
-                    self.owned
+                    ::core::pin::Pin::into_inner(self.owned)
                 }
 
                 pub(super) fn referencing<#attr_owned_lifetime>(
@@ -466,7 +476,8 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
 
         impl<#ref_struct_params_lt_static #owned_type_param> #ref_struct_ident<#ref_struct_args #owned_type_param>
         where
-            #owned_type_param: ::referential::StableDeref,
+            #owned_type_param: ::core::ops::Deref,
+            <#owned_type_param as ::core::ops::Deref>::Target: ::core::marker::Unpin,
         {
             #![allow(dead_code)]
 
@@ -492,7 +503,8 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
 
         impl<#ref_struct_params_lt_static #owned_type_param> #ref_struct_ident<#ref_struct_args #owned_type_param>
         where
-            #owned_type_param: ::referential::StableDeref,
+            #owned_type_param: ::core::ops::Deref,
+            <#owned_type_param as ::core::ops::Deref>::Target: ::core::marker::Unpin,
             for<#attr_owned_lifetime> #field_ty: ::referential::FromOwned<#attr_owned_lifetime, #owned_type_param::Target>,
         {
             #![allow(dead_code)]
@@ -504,7 +516,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
         }
 
     };
-    // eprintln!("{}", out);
+
     Ok(out)
 }
 
