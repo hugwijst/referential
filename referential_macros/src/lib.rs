@@ -322,9 +322,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                 }
                 .into(),
             ),
-        })
-        .map(|param| syn::punctuated::Pair::Punctuated(param, Comma::default()))
-        .collect::<Punctuated<syn::GenericArgument, _>>();
+        }).collect::<Vec<_>>();
 
     // Type identifier used to represent the owning data type.
     //
@@ -428,7 +426,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                 owned: ::core::pin::Pin<#owned_type_param>,
             }
 
-            impl<#ref_struct_params_lt_static #owned_type_param> Inner<#ref_struct_args #owned_type_param>
+            impl<#ref_struct_params_lt_static #owned_type_param> Inner<#(#ref_struct_args, )* #owned_type_param>
             where
                 #owned_type_param: ::core::ops::Deref,
                 <#owned_type_param as ::core::ops::Deref>::Target: ::core::marker::Unpin,
@@ -471,10 +469,10 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
         #ref_struct_vis struct #ref_struct_ident<#ref_struct_params_lt_static #owned_type_param>
             #ref_struct_where_clause
         {
-            inner: #mod_ident::Inner<#ref_struct_args #owned_type_param>,
+            inner: #mod_ident::Inner<#(#ref_struct_args, )* #owned_type_param>,
         }
 
-        impl<#ref_struct_params_lt_static #owned_type_param> #ref_struct_ident<#ref_struct_args #owned_type_param>
+        impl<#ref_struct_params_lt_static #owned_type_param> #ref_struct_ident<#(#ref_struct_args, )* #owned_type_param>
         where
             #owned_type_param: ::core::ops::Deref,
             <#owned_type_param as ::core::ops::Deref>::Target: ::core::marker::Unpin,
@@ -501,7 +499,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
             }
         }
 
-        impl<#ref_struct_params_lt_static #owned_type_param> #ref_struct_ident<#ref_struct_args #owned_type_param>
+        impl<#ref_struct_params_lt_static #owned_type_param> #ref_struct_ident<#(#ref_struct_args, )* #owned_type_param>
         where
             #owned_type_param: ::core::ops::Deref,
             <#owned_type_param as ::core::ops::Deref>::Target: ::core::marker::Unpin,

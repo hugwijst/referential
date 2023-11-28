@@ -1,0 +1,13 @@
+error: expected one of `,`, `:`, `=`, or `>`, found `<`
+ --> src/failing/circular.rs:6:28
+  |
+6 | struct Circular(Cell<Option<&'a Circular<O>>>);
+  |                            ^ expected one of `,`, `:`, `=`, or `>`
+
+warning: unused import: `core::cell::Cell`
+ --> src/failing/circular.rs:1:5
+  |
+1 | use core::cell::Cell;
+  |     ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default

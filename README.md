@@ -36,6 +36,7 @@ This crate requires at least **Rust 1.56.0** to compile.
 * [`rental`](https://crates.io/crates/rental)
 * [`owning_ref`](https://crates.io/crates/owning_ref)
 * [`ghost-cell`](https://crates.io/crates/ghost-cell)
+* [`selfie`](https://crates.io/crates/selfie)
 
 ## License
 

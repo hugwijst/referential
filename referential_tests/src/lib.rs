@@ -235,6 +235,12 @@ mod tests {
         referential.referencing().0.set(20);
         assert_eq!(referential.owning().get(), 20);
     }
+
+    #[test]
+    fn failing() {
+        let t = trybuild::TestCases::new();
+        t.compile_fail("src/failing/*.rs");
+    }
 }
 
 #[cfg(doctest)]
