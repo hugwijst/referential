@@ -1,13 +1,13 @@
-error: expected one of `,`, `:`, `=`, or `>`, found `<`
- --> src/failing/circular.rs:6:28
+error: lifetime may not live long enough
+ --> src/failing/circular.rs:5:1
   |
-6 | struct Circular(Cell<Option<&'a Circular<O>>>);
-  |                            ^ expected one of `,`, `:`, `=`, or `>`
-
-warning: unused import: `core::cell::Cell`
- --> src/failing/circular.rs:1:5
+5 | #[referential('a)]
+  | ^^^^^^^^^^^^^^--^^
+  | |             |
+  | |             lifetime `'a` defined here
+  | returning this value requires that `'a` must outlive `'static`
   |
-1 | use core::cell::Cell;
-  |     ^^^^^^^^^^^^^^^^
-  |
-  = note: `#[warn(unused_imports)]` on by default
+  = note: requirement occurs because of the type `Cell<Option<&Circular<()>>>`, which makes the generic argument `Option<&Circular<()>>` invariant
+  = note: the struct `Cell<T>` is invariant over the parameter `T`
+  = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
+  = note: this error originates in the attribute macro `referential` (in Nightly builds, run with -Z macro-backtrace for more info)

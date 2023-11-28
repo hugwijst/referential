@@ -1,11 +1,10 @@
 extern crate proc_macro;
 
 use std::cell::Cell;
-use std::collections::HashSet;
 
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{parse::Parse, punctuated::Punctuated, token::Comma, Error, GenericArgument};
+use syn::{parse::Parse, Error, GenericArgument};
 
 struct Attributes {
     owned_lifetime: syn::Lifetime,
@@ -19,45 +18,6 @@ impl Parse for Attributes {
     }
 }
 
-fn get_ty_generics(ty: &syn::Type) -> Vec<GenericArgument> {
-    match ty {
-        syn::Type::Array(ty) => get_ty_generics(&ty.elem),
-        syn::Type::BareFn(_) => vec![],
-        syn::Type::Group(ty) => get_ty_generics(&ty.elem),
-        syn::Type::ImplTrait(_) => vec![],
-        syn::Type::Infer(_) => vec![],
-        syn::Type::Macro(_) => vec![],
-        syn::Type::Never(_) => vec![],
-        syn::Type::Paren(ty) => get_ty_generics(&ty.elem),
-        syn::Type::Path(ty) => ty
-            .path
-            .segments
-            .iter()
-            .flat_map(|segment| match &segment.arguments {
-                syn::PathArguments::None => vec![],
-                syn::PathArguments::AngleBracketed(args) => args.args.iter().cloned().collect(),
-                syn::PathArguments::Parenthesized(_) => todo!(),
-            })
-            .collect(),
-        syn::Type::Ptr(ty) => get_ty_generics(&ty.elem),
-        syn::Type::Reference(ty) => ty
-            .lifetime
-            .iter()
-            .map(|lt| GenericArgument::Lifetime(lt.clone()))
-            .chain(get_ty_generics(&ty.elem))
-            .collect(),
-        syn::Type::Slice(ty) => get_ty_generics(&ty.elem),
-        syn::Type::TraitObject(_) => todo!(),
-        syn::Type::Tuple(ty) => ty
-            .elems
-            .iter()
-            .flat_map(|ty| get_ty_generics(ty).into_iter())
-            .collect(),
-        syn::Type::Verbatim(_) => vec![],
-        _ => vec![],
-    }
-}
-
 /// Check if any of the `params` define a type with identifier `ident`.
 fn params_contain_ident<'a>(
     mut params: impl Iterator<Item = &'a syn::GenericParam>,
@@ -67,11 +27,6 @@ fn params_contain_ident<'a>(
         syn::GenericParam::Type(ty) => ty.ident == ident,
         syn::GenericParam::Lifetime(_) | syn::GenericParam::Const(_) => false,
     })
-}
-
-fn deduplicate_generic_arguments(args: &[syn::GenericArgument]) -> Vec<&GenericArgument> {
-    let mut dedup_set = HashSet::new();
-    args.iter().filter(|a| dedup_set.insert(*a)).collect()
 }
 
 fn create_ident_not_in_params<'a>(
@@ -322,7 +277,8 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                 }
                 .into(),
             ),
-        }).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
 
     // Type identifier used to represent the owning data type.
     //
@@ -358,24 +314,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
     }?;
     let field_ty = &field.ty;
 
-    // All type generics in the field, as generic arguments.
-    //
-    // Example: `'a, 'b, T`.
-    let ty_generic_args = get_ty_generics(field_ty);
-    let ty_generic_args = deduplicate_generic_arguments(&ty_generic_args);
-
     let static_lifetime_argument = GenericArgument::Lifetime(static_lifetime);
-    let owned_lifetime_argument = GenericArgument::Lifetime(attr.owned_lifetime.clone());
-    // Type generic arguments, with owned lifetime replaced by `'static`.
-    //
-    // Example: `'static, 'b, T`.
-    let ty_generic_args_static = ty_generic_args.iter().map(|&argument| {
-        if argument == &owned_lifetime_argument {
-            &static_lifetime_argument
-        } else {
-            argument
-        }
-    });
 
     // Field type, with owned lifetime elided.
     //
@@ -405,13 +344,13 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
     });
 
     let out = quote! {
-        impl <#attr_owned_lifetime, #ref_struct_params> #mod_ident::__NameType <#(#ty_generic_args, )*> for ()
+        impl <#attr_owned_lifetime, #ref_struct_params> #mod_ident::__NameType <#attr_owned_lifetime, #(#ref_struct_args,)*> for ()
             #ref_struct_where_clause
         {
             type Type = #field_ty;
         }
         mod #mod_ident {
-            pub(super) trait __NameType <#(#ty_generic_args, )*> {
+            pub(super) trait __NameType <#attr_owned_lifetime, #(#ref_struct_args, )*> {
                 type Type;
             }
 
@@ -422,7 +361,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                 // The order of elements here is critical to ensure safety: the
                 // drop order is the same as declared here. First dropping the referenced
                 // data is obviously unsafe, dropping the references first should be safe.
-                referencing: <() as __NameType<#(#ty_generic_args_static, )*>>::Type,
+                referencing: <() as __NameType<#static_lifetime_argument, #(#ref_struct_args,)*>>::Type,
                 owned: ::core::pin::Pin<#owned_type_param>,
             }
 
@@ -437,7 +376,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
                 where
                     #function_param: for<#attr_owned_lifetime> FnOnce(
                         &#attr_owned_lifetime <#owned_type_param as ::core::ops::Deref>::Target
-                    ) -> <() as __NameType<#(#ty_generic_args, )*>>::Type,
+                    ) -> <() as __NameType<#attr_owned_lifetime, #(#ref_struct_args, )*>>::Type,
                 {
                     use ::core::ops::Deref;
                     let owned = ::core::pin::Pin::new(owned);
@@ -460,7 +399,7 @@ fn referential_impl(attr: Attributes, item_struct: syn::ItemStruct) -> syn::Resu
 
                 pub(super) fn referencing<#attr_owned_lifetime>(
                     &#attr_owned_lifetime self
-                ) -> &#attr_owned_lifetime <() as __NameType<#(#ty_generic_args, )*>>::Type {
+                ) -> &#attr_owned_lifetime <() as __NameType<#attr_owned_lifetime, #(#ref_struct_args, )*>>::Type {
                     &self.referencing
                 }
             }
